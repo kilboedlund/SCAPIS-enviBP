@@ -1,4 +1,4 @@
-temp_data <- function(id, skip) {
+temp_data <- function(id, skip = 0) {
   require('readr')
   return(
     readr::read_delim(
@@ -11,7 +11,7 @@ temp_data <- function(id, skip) {
   )
 }
 
-air_data <- function(id, pollutant, skip) {
+air_data <- function(id, pollutant, skip = 0) {
   require('readr')
   return(
     readr::read_delim(
@@ -22,3 +22,17 @@ air_data <- function(id, pollutant, skip) {
   )
 }
 
+humid_data <- function(id, skip = 0) {
+  require('readr')
+  return(
+    readr::read_delim(
+      here::here('data humid', paste0('smhi-opendata_6_', id, '_201301_201812.csv')),
+      skip = skip,
+      delim = ';',
+      col_select = 1:4,
+      col_types = 'Dtdc',
+      locale = locale(date_names = 'sv', decimal_mark = '.'))
+  )
+}
+
+humid_data(52350, 9)
