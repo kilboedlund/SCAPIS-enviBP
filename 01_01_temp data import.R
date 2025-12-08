@@ -11,7 +11,7 @@ df_temp_1 <- list(
   mal = temp_data(52350, 9)
 ) %>%
   map2(names(.),
-       ~ .x %>% mutate(site = .y)) %>%
+       ~.x %>% mutate(site = .y)) %>%
   bind_rows() %>%
   rename('date' = 'Datum',
          'time' = 'Tid (UTC)',
@@ -37,11 +37,14 @@ df_temp_2 <- df_temp_1 %>%
             mean = mean(temp),
             qrange = quantile(temp, probs = c(.05, .95)) %>% diff(),
             sd = sd(temp)) %>%
+  group_by(site) %>%
   mutate(year = year(date),
-         month = month(date, label = T))
+         month = month(date, label = T),
+         change = mean - lag(mean, 1)) %>%
+  ungroup()
 
 ## Proof of concept graphs ---------------------------------------------------------------------------------------------
-df_temp_2  %>%
+df_temp_2 %>%
   group_by(month, site) %>%
   summarise(qrange = median(qrange)) %>%
   ggplot(aes(x = month, y = qrange, fill = site)) +
@@ -51,7 +54,7 @@ df_temp_2  %>%
   ggtitle('Temp qrange, seasonal variation')
 ggsave(here::here('figures', paste(Sys.Date(), '_temp_qrange_seasonal variation.svg')), width = 5, height = 5)
 
-df_temp_2  %>%
+df_temp_2 %>%
   group_by(year, month, site) %>%
   summarise(mean = mean(mean)) %>%
   ggplot(aes(x = month, y = mean, fill = site)) +

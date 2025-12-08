@@ -33,3 +33,8 @@ df_eda_1 %>%
   theme(legend.position = 'none') +
   ggtitle('Correlations between hourly environmental exposures')
 ggsave(here::here('figures', paste0(Sys.Date(), '_cor.svg')), width = 5, height = 5)
+
+df_eda_2 <- df_eda_1 %>%
+  group_by(date, site) %>%
+  summarise(across(c(humi, no2, o3, pm10, pm25), ~mean(.x, na.rm = T))) %>%
+  left_join(df_wind_2, by = c('date', 'site'))
