@@ -1,3 +1,6 @@
 # Default ignored files
 /shelf/
 /workspace.xml
+
+# Folders that contain data that should not be pushed
+/data_SCAPIS/*
