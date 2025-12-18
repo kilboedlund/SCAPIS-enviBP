@@ -19,16 +19,6 @@ df_temp_1 <- list(
          'qual' = 'Kvalitet') %>%
   mutate(qual = qual == 'G')
 
-## Proof of concept graph ----------------------------------------------------------------------------------------------
-df_temp_1 %>%
-  mutate(year = year(date)) %>%
-  group_by(site, year, date) %>%
-  summarise(temp = mean(temp)) %>%
-  ggplot(aes(x = date, y = temp, colour = site)) +
-  geom_line() +
-  theme_classic() +
-  facet_wrap(vars(year), scales = 'free_x')
-
 # Calculate variability ------------------------------------------------------------------------------------------------
 df_temp_2 <- df_temp_1 %>%
   group_by(date, site) %>%
@@ -42,30 +32,3 @@ df_temp_2 <- df_temp_1 %>%
          month = month(date, label = T),
          change = mean - lag(mean, 1)) %>%
   ungroup()
-
-## Proof of concept graphs ---------------------------------------------------------------------------------------------
-df_temp_2 %>%
-  group_by(month, site) %>%
-  summarise(qrange = median(qrange)) %>%
-  ggplot(aes(x = month, y = qrange, fill = site)) +
-  geom_col() +
-  facet_grid(vars(site)) +
-  theme_classic() +
-  ggtitle('Temp qrange, seasonal variation')
-ggsave(here::here('figures', paste(Sys.Date(), '_temp_qrange_seasonal variation.svg')), width = 5, height = 5)
-
-df_temp_2 %>%
-  group_by(year, month, site) %>%
-  summarise(mean = mean(mean)) %>%
-  ggplot(aes(x = month, y = mean, fill = site)) +
-  geom_col() +
-  facet_grid(site ~ year) +
-  theme_classic() +
-  ggtitle('Temp mean, seasonal variation')
-ggsave(here::here('figures', paste(Sys.Date(), '_temp_mean_seasonal variation.svg')), width = 5, height = 5)
-
-## Linear regression ---------------------------------------------------------------------------------------------------
-lm(qrange ~ site + as.character(month), data = df_temp_2) %>%
-  summary()
-lm(mean ~ site + as.character(month), data = df_temp_2) %>%
-  summary()

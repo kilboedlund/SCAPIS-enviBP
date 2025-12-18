@@ -18,13 +18,3 @@ df_humid_1 <- list(
          'humi' = 'Relativ Luftfuktighet',
          'qual' = 'Kvalitet') %>%
   mutate(qual = qual == 'G')
-
-## Proof of concept graph ----------------------------------------------------------------------------------------------
-df_humid_1 %>%
-  mutate(year = year(date)) %>%
-  group_by(site, year, date) %>%
-  summarise(humi = mean(humi)) %>%
-  ggplot(aes(x = date, y = humi, colour = site)) +
-  geom_line() +
-  theme_classic() +
-  facet_wrap(vars(year), scales = 'free_x')

@@ -50,3 +50,12 @@ wind_data <- function(id, skip = 0) {
       locale = locale(date_names = 'sv', decimal_mark = '.'))
   )
 }
+
+iqr <- function(x) {
+  if (anyNA(x)) return(NA_real_)
+  return(unname(diff(quantile(x, c(.25, .75)))))
+}
+
+cv <- function(x, na.rm = F) {
+  return(sd(x, na.rm = na.rm) / mean(x, na.rm = na.rm))
+}
