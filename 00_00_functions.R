@@ -1,10 +1,10 @@
 ## Import functions ----------------------------------------------------------------------------------------------------
 
-temp_data <- function(id, skip = 0) {
+temp_data <- function(id, skip = 0, dew = '1') {
   require('readr')
   return(
     readr::read_delim(
-      here::here('data temp', paste0('smhi-opendata_1_', id, '_201301_201812.csv')),
+      here::here('data temp', paste0('smhi-opendata_', dew, '_', id, '_201301_201812.csv')),
       skip = skip,
       delim = ';',
       col_select = 1:4,

@@ -3,11 +3,11 @@ source(here::here('00_00_functions.R'))
 
 # Read data files ------------------------------------------------------------------------------------------------------
 df_humid_1 <- list(
-  lin = humid_data(85240, 9),
+  #lin = humid_data(85240, 9),
   got = humid_data(71420, 13),
   sth = humid_data(98230, 9),
-  upp = humid_data(97510, 9),
-  ume = humid_data(140480, 10),
+  #upp = humid_data(97510, 9),
+  #ume = humid_data(140480, 10),
   mal = humid_data(52350, 9)
 ) %>%
   map2(names(.),
