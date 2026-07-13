@@ -1,0 +1,46 @@
+library('tidyverse')
+
+df_outc <- readRDS('/safe/data/Research projects/SCAPIS/Originaldata/SCAPIS_master_20230605.rds') %>% 
+  left_join(haven::read_dta('/safe/data/Research projects/SCAPIS/Originaldata/Locally derived datasets/SCAPIS_ses_231009.dta')) %>% 
+  select(id = scapis_id, 
+         sex, 
+         date = anthropometrycollectiondate, 
+         site,
+         dbp = dbp_mean, 
+         sbp = sbp_mean, 
+         pulse, 
+         bmi, 
+         hip, 
+         waist, 
+         site, 
+         diab = diabetes, 
+         alc = cqah001, 
+         smo = derived_smoke_status, 
+         age = ageatvisitone,
+         ses,
+         tchol = cholesterolformattedresult,
+         hdl = hdlformattedresult,
+         phy = cqpa011,
+         hpt = cqhe034,
+         hpt_med = cqhe035,
+         cacs = cacs_tot) %>% 
+  mutate(date = as.Date.character(date, format = '%Y-%m-%d'),
+         site = case_when(str_sub(site, 1, 1) == 'S' ~ 'sth',
+                          str_sub(site, 1, 1) == 'G' ~ 'got',
+                          str_sub(site, 1, 1) == 'M' ~ 'mal',
+                          str_sub(site, 1, 1) == 'L' ~ 'lin',
+                          str_sub(site, 1, 2) == 'Up' ~ 'upp',
+                          str_sub(site, 1, 2) == 'Um' ~ 'ume'),
+         pp = sbp - dbp,
+         whr = waist/hip,
+         smo = na_if(smo, 'UNKNOWN'),
+         phy = na_if(phy, -99) %>% factor(),
+         alc = na_if(alc, -99) %>% factor(),
+         hpt = case_match(hpt,
+                          'YES' ~ 'yes',
+                          'NO' ~ 'no'),
+         hpt_med = case_match(hpt_med,
+                              'YES' ~ 'yes',
+                              'NO' ~ 'no'))
+
+saveRDS(df_outc, file = '/safe/data/Research projects/SCAPIS/Karl/SCAPIS enviBP/data SCAPIS/df_outc.rds')

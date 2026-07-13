@@ -1,0 +1,1261 @@
+library('splines')
+library('broom.mixed')
+source(here::here('00_00_functions.R'))
+
+df_3 <- df_2 %>% 
+  filter(!is.na(o3_24h) & !is.na(temp_24h)) %>%
+  mutate(temp_24h_t = factor(ntile(temp_24h, 3)),
+         o3_24h_t = factor(ntile(o3_24h, 3)))
+
+# 1 Single exposure temperature ------------------------------------------------
+newdat <- expand.grid(temp_24h = seq(quantile(df_3$temp_24h, .05, na.rm = T),
+                                     quantile(df_3$temp_24h, .95, na.rm = T),
+                                     length.out = 100)) %>% 
+  mutate(o3_24h = 0,
+         pm10_24h = 0,
+         no2_24h = 0,
+         sex = 'FEMALE',
+         age = 55,
+         diab = 'no',
+         whr = .9,
+         smo = 'NEVER',
+         alc = factor('2', levels = levels(df_3$alc)),
+         phy = factor('0', levels = levels(df_3$alc)),
+         ses = .28,
+         year = factor('3', levels = levels(df_3$year)),
+         month = factor('Jan', levels = levels(df_3$month)),
+         wday = factor('Mon', levels = levels(df_3$wday)),
+         site = 'got')
+
+refdat <- newdat[1, ]
+refdat$temp_24h <- 0
+
+## SBP -------------------------------------------------------------------------
+fit_sbp_temp_spline <-
+  lme4::lmer(
+    formula = sbp ~ ns(temp_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_temp_o3_spline <-
+  lme4::lmer(
+    formula = sbp ~ ns(temp_24h, 3) + ns(o3_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_temp_o3_pm10_spline <-
+  lme4::lmer(
+    formula = sbp ~ ns(temp_24h, 3) + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_temp_o3_pm10_linear <-
+  lme4::lmer(
+    formula = sbp ~ temp_24h + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+boot_temp_sbp <- lme4::bootMer(
+  fit_sbp_temp_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_temp_o3_sbp <- lme4::bootMer(
+  fit_sbp_temp_o3_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_temp_o3_pm10_sbp <- lme4::bootMer(
+  fit_sbp_temp_o3_pm10_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+newdat_sbp <- newdat
+
+newdat_sbp$fit <- predict(
+  fit_sbp_temp_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_sbp_temp_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_sbp$fit_o3 <- predict(
+  fit_sbp_temp_o3_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_sbp_temp_o3_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_sbp$fit_o3_pm10 <- predict(
+  fit_sbp_temp_o3_pm10_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_sbp_temp_o3_pm10_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_sbp$lcl <- apply(boot_temp_sbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_sbp$ucl <- apply(boot_temp_sbp$t, 2, quantile, 0.975, na.rm = T)
+newdat_sbp$lcl_o3 <- apply(boot_temp_o3_sbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_sbp$ucl_o3 <- apply(boot_temp_o3_sbp$t, 2, quantile, 0.975, na.rm = T)
+newdat_sbp$lcl_o3_pm10 <- apply(boot_temp_o3_pm10_sbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_sbp$ucl_o3_pm10 <- apply(boot_temp_o3_pm10_sbp$t, 2, quantile, 0.975, na.rm = T)
+
+p1sbp <- 
+  ggplot(newdat_sbp, 
+         aes(x = temp_24h*sd(df_1$temp_24h, na.rm = T) + mean(df_1$temp_24h, na.rm = T))) +
+  geom_hline(aes(yintercept = 0), linetype = 'dotted') +
+  geom_ribbon(aes(ymin = lcl, ymax = ucl), linewidth = 0.1, colour = 'darkorange', alpha = .25, fill = 'darkorange') + 
+  geom_ribbon(aes(ymin = lcl_o3, ymax = ucl_o3), linewidth = 0.1, colour = 'darkgreen', alpha = .25, fill = 'darkgreen') + 
+  geom_ribbon(aes(ymin = lcl_o3_pm10, ymax = ucl_o3_pm10), linewidth = 0.1, colour = 'darkblue', alpha = .25, fill = 'darkblue') + 
+  geom_line(aes(y = fit), colour = 'darkorange', linetype = 'dashed') +
+  geom_line(aes(y = fit_o3), colour = 'darkgreen', linetype = 'dotted') +
+  geom_line(aes(y = fit_o3_pm10), colour = 'darkblue') +
+  scale_x_continuous(expand = c(0,0), breaks = -1:3*5) +
+  coord_cartesian(ylim = c(-1, 2)) +
+  labs(x = 'Temperature, 24h mean [\u00b0C]',
+       y = 'SBP difference [mmHg]') +
+  theme_classic()
+
+## DBP -------------------------------------------------------------------------
+fit_dbp_temp_spline <-
+  lme4::lmer(
+    formula = dbp ~ ns(temp_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_temp_o3_spline <-
+  lme4::lmer(
+    formula = dbp ~ ns(temp_24h, 3) + ns(o3_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_temp_o3_pm10_spline <-
+  lme4::lmer(
+    formula = dbp ~ ns(temp_24h, 3) + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_temp_o3_pm10_linear <-
+  lme4::lmer(
+    formula = dbp ~ temp_24h + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+boot_temp_dbp <- lme4::bootMer(
+  fit_dbp_temp_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_temp_o3_dbp <- lme4::bootMer(
+  fit_dbp_temp_o3_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_temp_o3_pm10_dbp <- lme4::bootMer(
+  fit_dbp_temp_o3_pm10_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+newdat_dbp <- newdat
+newdat_dbp$fit <- predict(
+  fit_dbp_temp_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_dbp_temp_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_dbp$fit_o3 <- predict(
+  fit_dbp_temp_o3_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_dbp_temp_o3_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_dbp$fit_o3_pm10 <- predict(
+  fit_dbp_temp_o3_pm10_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_dbp_temp_o3_pm10_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_dbp$lcl <- apply(boot_temp_dbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_dbp$ucl <- apply(boot_temp_dbp$t, 2, quantile, 0.975, na.rm = T)
+newdat_dbp$lcl_o3 <- apply(boot_temp_o3_dbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_dbp$ucl_o3 <- apply(boot_temp_o3_dbp$t, 2, quantile, 0.975, na.rm = T)
+newdat_dbp$lcl_o3_pm10 <- apply(boot_temp_o3_pm10_dbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_dbp$ucl_o3_pm10 <- apply(boot_temp_o3_pm10_dbp$t, 2, quantile, 0.975, na.rm = T)
+
+p1dbp <- 
+  ggplot(newdat_dbp, 
+       aes(x = temp_24h*sd(df_1$temp_24h, na.rm = T) + mean(df_1$temp_24h, na.rm = T))) +
+  geom_hline(aes(yintercept = 0), linetype = 'dotted') +
+  geom_ribbon(aes(ymin = lcl, ymax = ucl), linewidth = 0.1, colour = 'darkorange', alpha = .25, fill = 'darkorange') + 
+  geom_ribbon(aes(ymin = lcl_o3, ymax = ucl_o3), linewidth = 0.1, colour = 'darkgreen', alpha = .25, fill = 'darkgreen') + 
+  geom_ribbon(aes(ymin = lcl_o3_pm10, ymax = ucl_o3_pm10), linewidth = 0.1, colour = 'darkblue', alpha = .25, fill = 'darkblue') + 
+  geom_line(aes(y = fit), colour = 'darkorange', linetype = 'dashed') +
+  geom_line(aes(y = fit_o3), colour = 'darkgreen', linetype = 'dotted') +
+  geom_line(aes(y = fit_o3_pm10), colour = 'darkblue') +
+  scale_x_continuous(expand = c(0,0), breaks = -1:3*5) +
+  coord_cartesian(ylim = c(-1, 2)) +
+  labs(x = 'Temperature, 24h mean [\u00b0C]',
+       y = 'DBP difference [mmHg]') +
+  theme_classic()
+
+## PP --------------------------------------------------------------------------
+fit_pp_temp_spline <-
+  lme4::lmer(
+    formula = pp ~ ns(temp_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_temp_o3_spline <-
+  lme4::lmer(
+    formula = pp ~ ns(temp_24h, 3) + ns(o3_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_temp_o3_pm10_spline <-
+  lme4::lmer(
+    formula = pp ~ ns(temp_24h, 3) + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_temp_o3_pm10_linear <-
+  lme4::lmer(
+    formula = pp ~ temp_24h + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+boot_temp_pp <- lme4::bootMer(
+  fit_pp_temp_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_temp_o3_pp <- lme4::bootMer(
+  fit_pp_temp_o3_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_temp_o3_pm10_pp <- lme4::bootMer(
+  fit_pp_temp_o3_pm10_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+newdat_pp <- newdat
+newdat_pp$fit <- predict(
+  fit_pp_temp_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_pp_temp_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_pp$fit_o3 <- predict(
+  fit_pp_temp_o3_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_pp_temp_o3_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+
+newdat_pp$fit_o3_pm10 <- predict(
+  fit_pp_temp_o3_pm10_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_pp_temp_o3_pm10_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_pp$lcl <- apply(boot_temp_pp$t, 2, quantile, 0.025, na.rm = T)
+newdat_pp$ucl <- apply(boot_temp_pp$t, 2, quantile, 0.975, na.rm = T)
+newdat_pp$lcl_o3 <- apply(boot_temp_o3_pp$t, 2, quantile, 0.025, na.rm = T)
+newdat_pp$ucl_o3 <- apply(boot_temp_o3_pp$t, 2, quantile, 0.975, na.rm = T)
+newdat_pp$lcl_o3_pm10 <- apply(boot_temp_o3_pm10_pp$t, 2, quantile, 0.025, na.rm = T)
+newdat_pp$ucl_o3_pm10 <- apply(boot_temp_o3_pm10_pp$t, 2, quantile, 0.975, na.rm = T)
+
+p1pp <- 
+  ggplot(newdat_pp, 
+       aes(x = temp_24h*sd(df_1$temp_24h, na.rm = T) + mean(df_1$temp_24h, na.rm = T))) +
+  geom_hline(aes(yintercept = 0), linetype = 'dotted') +
+  geom_ribbon(aes(ymin = lcl, ymax = ucl), linewidth = 0.1, colour = 'darkorange', alpha = .25, fill = 'darkorange') + 
+  geom_ribbon(aes(ymin = lcl_o3, ymax = ucl_o3), linewidth = 0.1, colour = 'darkgreen', alpha = .25, fill = 'darkgreen') + 
+  geom_ribbon(aes(ymin = lcl_o3_pm10, ymax = ucl_o3_pm10),linewidth = 0.1, colour = 'darkblue',  alpha = .25, fill = 'darkblue') + 
+  geom_line(aes(y = fit), colour = 'darkorange', linetype = 'dashed') +
+  geom_line(aes(y = fit_o3), colour = 'darkgreen') +
+  geom_line(aes(y = fit_o3_pm10), colour = 'darkblue', linetype = 'dotted') +
+  scale_x_continuous(expand = c(0,0), breaks = -1:3*5) +
+  coord_cartesian(ylim = c(-1, 2)) +
+  labs(x = 'Temperature, 24h mean [\u00b0C]',
+       y = 'PP difference [mmHg]') +
+  theme_classic()
+
+## HR --------------------------------------------------------------------------
+fit_hr_temp_spline <-
+  lme4::lmer(
+    formula = pulse ~ ns(temp_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_temp_o3_spline <-
+  lme4::lmer(
+    formula = pulse ~ ns(temp_24h, 3) + ns(o3_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_temp_o3_pm10_spline <-
+  lme4::lmer(
+    formula = pulse ~ ns(temp_24h, 3) + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_temp_o3_pm10_linear <-
+  lme4::lmer(
+    formula = pulse ~ temp_24h + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+boot_temp_hr <- lme4::bootMer(
+  fit_hr_temp_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_temp_o3_hr <- lme4::bootMer(
+  fit_hr_temp_o3_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_temp_o3_pm10_hr <- lme4::bootMer(
+  fit_hr_temp_o3_pm10_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+newdat_hr <- newdat
+newdat_hr$fit <- predict(
+  fit_hr_temp_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_hr_temp_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_hr$fit_o3 <- predict(
+  fit_hr_temp_o3_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_hr_temp_o3_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_hr$fit_o3_pm10 <- predict(
+  fit_hr_temp_o3_pm10_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_hr_temp_o3_pm10_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_hr$lcl <- apply(boot_temp_hr$t, 2, quantile, 0.025, na.rm = T)
+newdat_hr$ucl <- apply(boot_temp_hr$t, 2, quantile, 0.975, na.rm = T)
+newdat_hr$lcl_o3 <- apply(boot_temp_o3_hr$t, 2, quantile, 0.025, na.rm = T)
+newdat_hr$ucl_o3 <- apply(boot_temp_o3_hr$t, 2, quantile, 0.975, na.rm = T)
+newdat_hr$lcl_o3_pm10 <- apply(boot_temp_o3_pm10_hr$t, 2, quantile, 0.025, na.rm = T)
+newdat_hr$ucl_o3_pm10 <- apply(boot_temp_o3_pm10_hr$t, 2, quantile, 0.975, na.rm = T)
+
+p1hr <- 
+  ggplot(newdat_hr, 
+       aes(x = temp_24h*sd(df_1$temp_24h, na.rm = T) + mean(df_1$temp_24h, na.rm = T))) +
+  geom_hline(aes(yintercept = 0), linetype = 'dotted') +
+  geom_ribbon(aes(ymin = lcl, ymax = ucl), linewidth = 0.1, colour = 'darkorange', alpha = .25, fill = 'darkorange') + 
+  geom_ribbon(aes(ymin = lcl_o3, ymax = ucl_o3), linewidth = 0.1, colour = 'darkgreen', alpha = .25, fill = 'darkgreen') + 
+  geom_ribbon(aes(ymin = lcl_o3_pm10, ymax = ucl_o3_pm10), linewidth = 0.1, colour = 'darkblue', alpha = .25, fill = 'darkblue') +
+  geom_line(aes(y = fit), colour = 'darkorange', linetype = 'dashed') +
+  geom_line(aes(y = fit_o3), colour = 'darkgreen') +
+  geom_line(aes(y = fit_o3_pm10), colour = 'darkblue', linetype = 'dotted') +
+  scale_x_continuous(expand = c(0,0), breaks = -1:3*5) +
+  coord_cartesian(ylim = c(-1, 2)) +
+  labs(x = 'Temperature, 24h mean [\u00b0C]',
+       y = 'HR difference [bpm]') +
+  theme_classic()
+
+# 2 Single exposure O3 ---------------------------------------------------------
+newdat <- expand.grid(o3_24h = seq(quantile(df_3$o3_24h, .05, na.rm = T),
+                                   quantile(df_3$o3_24h, .95, na.rm = T),
+                                   length.out = 100)) %>% 
+  mutate(temp_24h = 0,
+         pm10_24h = 0,
+         no2_24h = 0,
+         sex = 'FEMALE',
+         age = 55,
+         diab = 'no',
+         whr = .9,
+         smo = 'NEVER',
+         alc = factor('2', levels = levels(df_3$alc)),
+         phy = factor('0', levels = levels(df_3$alc)),
+         ses = .28,
+         year = factor('3', levels = levels(df_3$year)),
+         month = factor('Jan', levels = levels(df_3$month)),
+         wday = factor('Mon', levels = levels(df_3$wday)),
+         site = 'got')
+
+refdat <- newdat[1, ]
+refdat$o3_24h <- 0
+
+## SBP -------------------------------------------------------------------------
+fit_sbp_o3_spline <-
+  lme4::lmer(
+    formula = sbp ~ ns(o3_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_o3_temp_spline <-
+  lme4::lmer(
+    formula = sbp ~ ns(o3_24h, 3) + ns(temp_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_o3_temp_pm10_spline <-
+  lme4::lmer(
+    formula = sbp ~ ns(o3_24h, 3) + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_o3_temp_pm10_linear <-
+  lme4::lmer(
+    formula = sbp ~ o3_24h + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+boot_o3_sbp <- lme4::bootMer(
+  fit_sbp_o3_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_o3_temp_sbp <- lme4::bootMer(
+  fit_sbp_o3_temp_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_o3_temp_pm10_sbp <- lme4::bootMer(
+  fit_sbp_o3_temp_pm10_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+newdat_sbp <- newdat
+
+newdat_sbp$fit <- predict(
+  fit_sbp_o3_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_sbp_o3_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_sbp$fit_temp <- predict(
+  fit_sbp_o3_temp_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_sbp_o3_temp_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_sbp$fit_temp_pm10 <- predict(
+  fit_sbp_o3_temp_pm10_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_sbp_o3_temp_pm10_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_sbp$lcl <- apply(boot_o3_sbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_sbp$ucl <- apply(boot_o3_sbp$t, 2, quantile, 0.975, na.rm = T)
+newdat_sbp$lcl_temp <- apply(boot_o3_temp_sbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_sbp$ucl_temp <- apply(boot_o3_temp_sbp$t, 2, quantile, 0.975, na.rm = T)
+newdat_sbp$lcl_temp_pm10 <- apply(boot_o3_temp_pm10_sbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_sbp$ucl_temp_pm10 <- apply(boot_o3_temp_pm10_sbp$t, 2, quantile, 0.975, na.rm = T)
+
+p2sbp <- 
+  ggplot(newdat_sbp, 
+       aes(x = o3_24h*sd(df_1$o3_24h, na.rm = T) + mean(df_1$o3_24h, na.rm = T))) +
+  geom_hline(aes(yintercept = 0), linetype = 'dotted') +
+  geom_ribbon(aes(ymin = lcl, ymax = ucl), linewidth = 0.1, colour = 'darkorange', alpha = .25, fill = 'darkorange') + 
+  geom_ribbon(aes(ymin = lcl_temp, ymax = ucl_temp), linewidth = 0.1, colour = 'darkgreen', alpha = .25, fill = 'darkgreen') + 
+  geom_ribbon(aes(ymin = lcl_temp_pm10, ymax = ucl_temp_pm10), linewidth = 0.1, colour = 'darkblue', alpha = .25, fill = 'darkblue') + 
+  geom_line(aes(y = fit), colour = 'darkorange', linetype = 'dashed') +
+  geom_line(aes(y = fit_temp), colour = 'darkgreen') +
+  geom_line(aes(y = fit_temp_pm10), colour = 'darkblue', linetype = 'dotted') +
+  scale_x_continuous(expand = c(0,0), breaks = 2:7*10) +
+  coord_cartesian(ylim = c(-1, 2)) +
+  labs(x = 'O3, 24h mean [\u00b5g/m\u00b3]',
+       y = 'SBP difference [mmHg]') +
+  theme_classic()
+
+## DBP -------------------------------------------------------------------------
+fit_dbp_o3_spline <-
+  lme4::lmer(
+    formula = dbp ~ ns(o3_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_o3_temp_spline <-
+  lme4::lmer(
+    formula = dbp ~ ns(o3_24h, 3) + ns(temp_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_o3_temp_pm10_spline <-
+  lme4::lmer(
+    formula = dbp ~ ns(o3_24h, 3) + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_o3_temp_pm10_linear <-
+  lme4::lmer(
+    formula = dbp ~ o3_24h + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+boot_o3_dbp <- lme4::bootMer(
+  fit_dbp_o3_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_o3_temp_dbp <- lme4::bootMer(
+  fit_dbp_o3_temp_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_o3_temp_pm10_dbp <- lme4::bootMer(
+  fit_dbp_o3_temp_pm10_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+newdat_dbp <- newdat
+
+newdat_dbp$fit <- predict(
+  fit_dbp_o3_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_dbp_o3_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_dbp$fit_temp <- predict(
+  fit_dbp_o3_temp_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_dbp_o3_temp_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_dbp$fit_temp_pm10 <- predict(
+  fit_dbp_o3_temp_pm10_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_dbp_o3_temp_pm10_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_dbp$lcl <- apply(boot_o3_dbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_dbp$ucl <- apply(boot_o3_dbp$t, 2, quantile, 0.975, na.rm = T)
+newdat_dbp$lcl_temp <- apply(boot_o3_temp_dbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_dbp$ucl_temp <- apply(boot_o3_temp_dbp$t, 2, quantile, 0.975, na.rm = T)
+newdat_dbp$lcl_temp_pm10 <- apply(boot_o3_temp_pm10_dbp$t, 2, quantile, 0.025, na.rm = T)
+newdat_dbp$ucl_temp_pm10 <- apply(boot_o3_temp_pm10_dbp$t, 2, quantile, 0.975, na.rm = T)
+
+p2dbp <- 
+  ggplot(newdat_dbp, 
+       aes(x = o3_24h*sd(df_1$o3_24h, na.rm = T) + mean(df_1$o3_24h, na.rm = T))) +
+  geom_hline(aes(yintercept = 0), linetype = 'dotted') +
+  geom_ribbon(aes(ymin = lcl, ymax = ucl), linewidth = 0.1, colour = 'darkorange', alpha = .25, fill = 'darkorange') + 
+  geom_ribbon(aes(ymin = lcl_temp, ymax = ucl_temp), linewidth = 0.1, colour = 'darkgreen', alpha = .25, fill = 'darkgreen') + 
+  geom_ribbon(aes(ymin = lcl_temp_pm10, ymax = ucl_temp_pm10), linewidth = 0.1, colour = 'darkblue', alpha = .25, fill = 'darkblue') +
+  geom_line(aes(y = fit), colour = 'darkorange', linetype = 'dashed') +
+  geom_line(aes(y = fit_temp), colour = 'darkgreen') +
+  geom_line(aes(y = fit_temp_pm10), colour = 'darkblue', linetype = 'dotted') +
+  scale_x_continuous(expand = c(0,0), breaks = 2:7*10) +
+  coord_cartesian(ylim = c(-1, 2)) +
+  labs(x = 'O3, 24h mean [\u00b5g/m\u00b3]',
+       y = 'DBP difference [mmHg]') +
+  theme_classic()
+
+## PP -------------------------------------------------------------------------
+fit_pp_o3_spline <-
+  lme4::lmer(
+    formula = pp ~ ns(o3_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_o3_temp_spline <-
+  lme4::lmer(
+    formula = pp ~ ns(o3_24h, 3) + ns(temp_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_o3_temp_pm10_spline <-
+  lme4::lmer(
+    formula = pp ~ ns(o3_24h, 3) + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_o3_temp_pm10_linear <-
+  lme4::lmer(
+    formula = pp ~ o3_24h + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+boot_o3_pp <- lme4::bootMer(
+  fit_pp_o3_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_o3_temp_pp <- lme4::bootMer(
+  fit_pp_o3_temp_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_o3_temp_pm10_pp <- lme4::bootMer(
+  fit_pp_o3_temp_pm10_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+newdat_pp <- newdat
+
+newdat_pp$fit <- predict(
+  fit_pp_o3_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_pp_o3_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_pp$fit_temp <- predict(
+  fit_pp_o3_temp_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_pp_o3_temp_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_pp$fit_temp_pm10 <- predict(
+  fit_pp_o3_temp_pm10_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_pp_o3_temp_pm10_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_pp$lcl <- apply(boot_o3_pp$t, 2, quantile, 0.025, na.rm = T)
+newdat_pp$ucl <- apply(boot_o3_pp$t, 2, quantile, 0.975, na.rm = T)
+newdat_pp$lcl_temp <- apply(boot_o3_temp_pp$t, 2, quantile, 0.025, na.rm = T)
+newdat_pp$ucl_temp <- apply(boot_o3_temp_pp$t, 2, quantile, 0.975, na.rm = T)
+newdat_pp$lcl_temp_pm10 <- apply(boot_o3_temp_pm10_pp$t, 2, quantile, 0.025, na.rm = T)
+newdat_pp$ucl_temp_pm10 <- apply(boot_o3_temp_pm10_pp$t, 2, quantile, 0.975, na.rm = T)
+
+p2pp <- 
+  ggplot(newdat_pp, 
+       aes(x = o3_24h*sd(df_1$o3_24h, na.rm = T) + mean(df_1$o3_24h, na.rm = T))) +
+  geom_hline(aes(yintercept = 0), linetype = 'dotted') +
+  geom_ribbon(aes(ymin = lcl, ymax = ucl), linewidth = 0.1, colour = 'darkorange', alpha = .25, fill = 'darkorange') + 
+  geom_ribbon(aes(ymin = lcl_temp, ymax = ucl_temp), linewidth = 0.1, colour = 'darkgreen', alpha = .25, fill = 'darkgreen') + 
+  geom_ribbon(aes(ymin = lcl_temp_pm10, ymax = ucl_temp_pm10), linewidth = 0.1, colour = 'darkblue', alpha = .25, fill = 'darkblue') + 
+  geom_line(aes(y = fit), colour = 'darkorange', linetype = 'dashed') +
+  geom_line(aes(y = fit_temp), colour = 'darkgreen') +
+  geom_line(aes(y = fit_temp_pm10), colour = 'darkblue', linetype = 'dotted') +
+  scale_x_continuous(expand = c(0,0), breaks = 2:7*10) +
+  coord_cartesian(ylim = c(-1, 2)) +
+  labs(x = 'O3, 24h mean [\u00b5g/m\u00b3]',
+       y = 'PP difference [mmHg]') +
+  theme_classic()
+
+## HR --------------------------------------------------------------------------
+fit_hr_o3_spline <-
+  lme4::lmer(
+    formula = pulse ~ ns(o3_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_o3_temp_spline <-
+  lme4::lmer(
+    formula = pulse ~ ns(o3_24h, 3) + ns(temp_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_o3_temp_pm10_spline <-
+  lme4::lmer(
+    formula = pulse ~ ns(o3_24h, 3) + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_o3_temp_pm10_linear <-
+  lme4::lmer(
+    formula = pulse ~ o3_24h + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+boot_o3_hr <- lme4::bootMer(
+  fit_hr_o3_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_o3_temp_hr <- lme4::bootMer(
+  fit_hr_o3_temp_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+boot_o3_temp_pm10_hr <- lme4::bootMer(
+  fit_hr_o3_temp_pm10_spline,
+  FUN = boot_fun,
+  nsim = 500,
+  type = 'parametric',
+  use.u = T
+)
+
+newdat_hr <- newdat
+
+newdat_hr$fit <- predict(
+  fit_hr_o3_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_hr_o3_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_hr$fit_temp <- predict(
+  fit_hr_o3_temp_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_hr_o3_temp_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_hr$fit_temp_pm10 <- predict(
+  fit_hr_o3_temp_pm10_spline,
+  newdata = newdat,
+  re.form = NA
+) - as.numeric(predict(
+  fit_hr_o3_temp_pm10_spline,
+  newdata = refdat,
+  re.form = NA
+))
+
+newdat_hr$lcl <- apply(boot_o3_hr$t, 2, quantile, 0.025, na.rm = T)
+newdat_hr$ucl <- apply(boot_o3_hr$t, 2, quantile, 0.975, na.rm = T)
+newdat_hr$lcl_temp <- apply(boot_o3_temp_hr$t, 2, quantile, 0.025, na.rm = T)
+newdat_hr$ucl_temp <- apply(boot_o3_temp_hr$t, 2, quantile, 0.975, na.rm = T)
+newdat_hr$lcl_temp_pm10 <- apply(boot_o3_temp_pm10_hr$t, 2, quantile, 0.025, na.rm = T)
+newdat_hr$ucl_temp_pm10 <- apply(boot_o3_temp_pm10_hr$t, 2, quantile, 0.975, na.rm = T)
+
+p2hr <- 
+  ggplot(newdat_hr, 
+       aes(x = o3_24h*sd(df_1$o3_24h, na.rm = T) + mean(df_1$o3_24h, na.rm = T))) +
+  geom_hline(aes(yintercept = 0), linetype = 'dotted') +
+  geom_ribbon(aes(ymin = lcl, ymax = ucl), linewidth = 0.1, colour = 'darkorange', alpha = .25, fill = 'darkorange') + 
+  geom_ribbon(aes(ymin = lcl_temp, ymax = ucl_temp), linewidth = 0.1, colour = 'darkgreen', alpha = .25, fill = 'darkgreen') + 
+  geom_ribbon(aes(ymin = lcl_temp_pm10, ymax = ucl_temp_pm10), linewidth = 0.1, colour = 'darkblue', alpha = .25, fill = 'darkblue') + 
+  geom_line(aes(y = fit), colour = 'darkorange', linetype = 'dashed') +
+  geom_line(aes(y = fit_temp), colour = 'darkgreen') +
+  geom_line(aes(y = fit_temp_pm10), colour = 'darkblue', linetype = 'dotted') +
+  scale_x_continuous(expand = c(0,0), breaks = 2:7*10) +
+  coord_cartesian(ylim = c(-1, 2)) +
+  labs(x = 'O3, 24h mean [\u00b5g/m\u00b3]',
+       y = 'HR difference [bpm]') +
+  theme_classic()
+
+# 3 Interaction temp-O3 --------------------------------------------------------
+## SBP -------------------------------------------------------------------------
+fit_sbp_o3_temp_pm10_inter <-
+  lme4::lmer(
+    formula = sbp ~ ns(o3_24h, 3) : temp_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_o3_temp_pm10_linear <-
+  lme4::lmer(
+    formula = sbp ~ o3_24h + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_o3_temp_pm10_linear_inter <-
+  lme4::lmer(
+    formula = sbp ~ o3_24h : temp_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_temp_o3_pm10_linear <-
+  lme4::lmer(
+    formula = sbp ~ temp_24h + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_temp_o3_pm10_linear_inter <-
+  lme4::lmer(
+    formula = sbp ~ temp_24h : o3_24h_t + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_temp_temp_o3_pm10_linear_inter <-
+  lme4::lmer(
+    formula = sbp ~ temp_24h : temp_24h_t + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_sbp_o3_o3_temp_pm10_linear_inter <-
+  lme4::lmer(
+    formula = sbp ~ o3_24h : o3_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+## DBP -------------------------------------------------------------------------
+fit_dbp_o3_temp_pm10_inter <-
+  lme4::lmer(
+    formula = dbp ~ ns(o3_24h, 3) : temp_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_o3_temp_pm10_linear <-
+  lme4::lmer(
+    formula = dbp ~ o3_24h + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_o3_temp_pm10_linear_inter <-
+  lme4::lmer(
+    formula = dbp ~ o3_24h : temp_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_temp_o3_pm10_linear <-
+  lme4::lmer(
+    formula = dbp ~ temp_24h + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_temp_o3_pm10_linear_inter <-
+  lme4::lmer(
+    formula = dbp ~ temp_24h : o3_24h_t + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_temp_temp_o3_pm10_linear_inter <-
+  lme4::lmer(
+    formula = dbp ~ temp_24h : temp_24h_t + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_dbp_o3_o3_temp_pm10_linear_inter <-
+  lme4::lmer(
+    formula = dbp ~ o3_24h : o3_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+## PP -------------------------------------------------------------------------
+fit_pp_o3_temp_pm10_inter <-
+  lme4::lmer(
+    formula = pp ~ ns(o3_24h, 3) : temp_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_o3_temp_pm10_linear <-
+  lme4::lmer(
+    formula = pp ~ o3_24h + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_o3_temp_pm10_linear_inter <-
+  lme4::lmer(
+    formula = pp ~ o3_24h : temp_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_temp_o3_pm10_linear <-
+  lme4::lmer(
+    formula = pp ~ temp_24h + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_temp_o3_pm10_linear_inter <-
+  lme4::lmer(
+    formula = pp ~ temp_24h : o3_24h_t + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_temp_temp_o3_pm10_linear_inter <-
+  lme4::lmer(
+    formula = pp ~ temp_24h : temp_24h_t + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_pp_o3_o3_temp_pm10_linear_inter <-
+  lme4::lmer(
+    formula = pp ~ o3_24h : o3_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+## HR --------------------------------------------------------------------------
+fit_hr_o3_temp_pm10_inter <-
+  lme4::lmer(
+    formula = pulse ~ ns(o3_24h, 3) : temp_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_o3_temp_pm10_linear <-
+  lme4::lmer(
+    formula = pulse ~ o3_24h + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_o3_temp_pm10_linear_inter <-
+  lme4::lmer(
+    formula = pulse ~ o3_24h : temp_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_temp_o3_pm10_linear <-
+  lme4::lmer(
+    formula = pulse ~ temp_24h + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_temp_o3_pm10_linear_inter <-
+  lme4::lmer(
+    formula = pulse ~ temp_24h : o3_24h_t + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_temp_temp_o3_pm10_linear_inter <-
+  lme4::lmer(
+    formula = pulse ~ temp_24h : temp_24h_t + ns(o3_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+
+fit_hr_o3_o3_temp_pm10_linear_inter <-
+  lme4::lmer(
+    formula = pulse ~ o3_24h : o3_24h_t + ns(temp_24h, 3) + ns(pm10_24h, 3) + ns(no2_24h, 3) + sex + age + diab + whr + smo + alc + phy + ses + year + month + wday + (1|site),
+    data = df_3
+  )
+# Plot ------------------------------------------------------------------------
+cowplot::plot_grid(
+  p1sbp,
+  p1dbp,
+  p1pp,
+  p1hr,
+  p2sbp,
+  p2dbp,
+  p2pp,
+  p2hr,
+  nrow = 2,
+  align = 'hv',
+  labels = c('A', '', '', '', 'B', '', '', '')
+)
+ggsave(here::here('figures', paste0(Sys.Date(), '_fig1.svg')), width = 14, height = 6)
+ggsave(here::here('figures', paste0(Sys.Date(), '_fig1.png')), width = 14, height = 6)
+
+table3 <- bind_rows(
+  fit_sbp_temp_o3_pm10_linear %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'sbp',
+           restriction = 'all',
+           p_lin = anova(fit_sbp_temp_o3_pm10_linear, fit_sbp_temp_o3_pm10_spline)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  fit_sbp_temp_o3_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'sbp',
+           restriction = 'all',
+           p_int = anova(fit_sbp_temp_o3_pm10_linear_inter, fit_sbp_temp_o3_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  fit_sbp_temp_temp_o3_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'sbp',
+           restriction = 'all',
+           p_int = anova(fit_sbp_temp_temp_o3_pm10_linear_inter, fit_sbp_temp_o3_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  
+  fit_dbp_temp_o3_pm10_linear %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'dbp',
+           restriction = 'all',
+           p_lin = anova(fit_dbp_temp_o3_pm10_linear, fit_dbp_temp_o3_pm10_spline)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  fit_dbp_temp_o3_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'dbp',
+           restriction = 'all',
+           p_int = anova(fit_dbp_temp_o3_pm10_linear_inter, fit_dbp_temp_o3_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  fit_dbp_temp_temp_o3_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'dbp',
+           restriction = 'all',
+           p_int = anova(fit_dbp_temp_temp_o3_pm10_linear_inter, fit_dbp_temp_o3_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  
+  fit_pp_temp_o3_pm10_linear %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'pp',
+           restriction = 'all',
+           p_lin = anova(fit_pp_temp_o3_pm10_linear, fit_pp_temp_o3_pm10_spline)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  fit_pp_temp_o3_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'pp',
+           restriction = 'all',
+           p_int = anova(fit_pp_temp_o3_pm10_linear_inter, fit_pp_temp_o3_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  fit_pp_temp_temp_o3_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'pp',
+           restriction = 'all',
+           p_int = anova(fit_pp_temp_temp_o3_pm10_linear_inter, fit_pp_temp_o3_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  
+  fit_hr_temp_o3_pm10_linear %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'hr',
+           restriction = 'all',
+           p_lin = anova(fit_hr_temp_o3_pm10_linear, fit_hr_temp_o3_pm10_spline)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  fit_hr_temp_o3_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'hr',
+           restriction = 'all',
+           p_int = anova(fit_hr_temp_o3_pm10_linear_inter, fit_hr_temp_o3_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  fit_hr_temp_temp_o3_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'temp_24h')) %>% 
+    mutate(outcome = 'hr',
+           restriction = 'all',
+           p_int = anova(fit_hr_temp_temp_o3_pm10_linear_inter, fit_hr_temp_o3_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$temp_24h, na.rm = T))),
+  
+  
+  fit_sbp_o3_temp_pm10_linear %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'sbp',
+           restriction = 'all',
+           p_lin = anova(fit_sbp_o3_temp_pm10_linear, fit_sbp_o3_temp_pm10_spline)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T))),
+  fit_sbp_o3_temp_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'sbp',
+           restriction = 'all',
+           p_int = anova(fit_sbp_o3_temp_pm10_linear_inter, fit_sbp_o3_temp_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T))),
+  fit_sbp_o3_o3_temp_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'sbp',
+           restriction = 'all',
+           p_int = anova(fit_sbp_o3_o3_temp_pm10_linear_inter, fit_sbp_o3_temp_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T))),
+  
+  fit_dbp_o3_temp_pm10_linear %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'dbp',
+           restriction = 'all',
+           p_lin = anova(fit_dbp_o3_temp_pm10_linear, fit_dbp_o3_temp_pm10_spline)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T))),
+  fit_dbp_o3_temp_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'dbp',
+           restriction = 'all',
+           p_int = anova(fit_dbp_o3_temp_pm10_linear_inter, fit_dbp_o3_temp_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T))),
+  fit_dbp_o3_o3_temp_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'dbp',
+           restriction = 'all',
+           p_int = anova(fit_dbp_o3_o3_temp_pm10_linear_inter, fit_dbp_o3_temp_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T))),
+  
+  fit_pp_o3_temp_pm10_linear %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'pp',
+           restriction = 'all',
+           p_lin = anova(fit_pp_o3_temp_pm10_linear, fit_pp_o3_temp_pm10_spline)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T))),
+  fit_pp_o3_temp_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'pp',
+           restriction = 'all',
+           p_int = anova(fit_pp_o3_temp_pm10_linear_inter, fit_pp_o3_temp_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T))),
+  fit_pp_o3_o3_temp_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'pp',
+           restriction = 'all',
+           p_int = anova(fit_pp_o3_o3_temp_pm10_linear_inter, fit_pp_o3_temp_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T))),
+  
+  fit_hr_o3_temp_pm10_linear %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'hr',
+           restriction = 'all',
+           p_lin = anova(fit_hr_o3_temp_pm10_linear, fit_hr_o3_temp_pm10_spline)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T))),
+  fit_hr_o3_temp_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'hr',
+           restriction = 'all',
+           p_int = anova(fit_hr_o3_temp_pm10_linear_inter, fit_hr_o3_temp_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T))),
+  fit_hr_o3_o3_temp_pm10_linear_inter %>% 
+    tidy(conf.int = T) %>% 
+    filter(str_detect(term, 'o3_24h')) %>% 
+    mutate(outcome = 'hr',
+           restriction = 'all',
+           p_int = anova(fit_hr_o3_o3_temp_pm10_linear_inter, fit_hr_o3_temp_pm10_linear)$`Pr(>Chisq)`[2],
+           across(c(estimate, conf.low, conf.high), \(x) 10 * x / sd(df_1$o3_24h, na.rm = T)))
+  ) %>% 
+  separate(term, into = c('main', 'inter'), sep = ':') %>% 
+  mutate(estimate = paste0(sprintf('%.2f', estimate), ' (',
+                           sprintf('%.2f', conf.low), ', ',
+                           sprintf('%.2f', conf.high), ')')) %>% 
+  pivot_wider(id_cols = c('main', 'outcome'),
+              names_from = 'inter',
+              values_from = c('estimate', 'p_lin', 'p_int')) %>% 
+  select('main', 'outcome', contains('estimate'), p_lin = p_lin_NA, 
+         p_int_o3 = p_int_o3_24h_t1, p_int_temp = p_int_temp_24h_t1)
