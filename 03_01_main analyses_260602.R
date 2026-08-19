@@ -1259,3 +1259,6 @@ table3 <- bind_rows(
               values_from = c('estimate', 'p_lin', 'p_int')) %>% 
   select('main', 'outcome', contains('estimate'), p_lin = p_lin_NA, 
          p_int_o3 = p_int_o3_24h_t1, p_int_temp = p_int_temp_24h_t1)
+
+writexl::write_xlsx(table3,
+                    here::here(paste0(Sys.Date(), '_table3.xlsx')))

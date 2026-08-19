@@ -14,14 +14,7 @@ df_1 <- readRDS('/safe/data/Research projects/SCAPIS/Karl/SCAPIS enviBP/data SCA
       filter(year == str_sub(date, 1, 4)) %>% 
       select(id, ndvi), 
     by = 'id'
-  ) %>% 
-  mutate(diab = case_match(diab,
-                           'NORMOGLYCEMIA' ~ 'no',
-                           'NEW_DM' ~ 'yes',
-                           'KNOWN_DM' ~ 'yes',
-                           'IFG' ~ 'no',
-                           'ELEV_HBA1C' ~ 'no',
-                           '' ~ NA_character_))
+  )
 
 df_2 <- df_1 %>% 
   mutate(across(c('ndvi', contains('temp'), contains('o3'), contains('pm10'), contains('no2')),
@@ -31,20 +24,8 @@ df_2 <- df_1 %>%
          year = factor(year, ordered = F),
          month = factor(lubridate::month(date, label = T), ordered = F),
          wday = factor(lubridate::wday(date, label = T), ordered = F),
-         score2_uncal = 1 - (if_else(sex == 'MALE', .9695, .9776) ^ exp( 
-           if_else(sex == 'MALE', .3742, .4648) * ((age - 60) / 5) +
-             if_else(sex == 'MALE', .6012, .7744) * (smo == 'CURRENT') +
-             if_else(sex == 'MALE', .2777, .3131) * (sbp - 120) / sbp +
-             if_else(sex == 'MALE', .1458, .1002) * (tchol - 6) +
-             if_else(sex == 'MALE', -.2698, -.2606) * (hdl - 1.3) / .5 +
-             if_else(sex == 'MALE', -.0755, -.1088) * (smo == 'CURRENT') * ((age - 60) / 5) +
-             if_else(sex == 'MALE', -.0255, -.0277) * ((sbp - 120) / sbp) * ((age - 60) / 5) +
-             if_else(sex == 'MALE', -.0281, -.0226) * (tchol - 6) * ((age - 60) / 5) +
-             if_else(sex == 'MALE', .0426, .0613) * ((hdl - 1.3) / .5) * ((age - 60) / 5)
-         )
-         ),
-         score2_cal = (1 - exp(-exp(if_else(sex == 'MALE', -.1565, -.3143) +
-                                      if_else(sex == 'MALE', .8009, .7701) *
-                                      log(-log(1 - score2_uncal))))) * 100
+         yday = yday(date) / if_else(leap_year(date), 366, 355),
+         site = factor(site),
+         season = if_else(month(date) %in% 4:9, 'W', 'C')
   )
 
